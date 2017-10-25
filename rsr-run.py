@@ -117,15 +117,15 @@ class Model(ModelDesc):
         opt = tf.train.MomentumOptimizer(lr, 0.9)
         return opt
 
-def create_dataflow(partition='train'):
+def create_dataflow(partition, cachedir, datadir, spkmap, sentfilt):
     isTrain = partition == 'train'
     if isTrain:
         # /data/sls/scratch/skoppula/mfcc-nns/rsr-experiments/dorefa/train_cache/rsr_smlspk_512_50_20
-        rsr_ds = RandomFramesBatchFromCacheRsr2015('/data/sls/scratch/skoppula/mfcc-nns/rsr-experiments/create_rsr_data_cache/trn_cache/context_50frms_4mx/')
+        rsr_ds = RandomFramesBatchFromCacheRsr2015(cachedir)
         rsr_ds = PrefetchDataZMQ(rsr_ds, min(7, multiprocessing.cpu_count()))
     else:
         # /data/sls/scratch/skoppula/kaldi-rsr/numpy/small_spk_idxs/
-        rsr_ds = WholeUtteranceAsBatchRsr2015('/data/sls/scratch/skoppula/kaldi-rsr/numpy/', partition, context=args.n_context, shuffle=isTrain)
+        rsr_ds = WholeUtteranceAsBatchRsr2015(datadir, partition, spkmap, context=args.n_context, shuffle=isTrain, sentfilt=sentfilt)
     return rsr_ds, rsr_ds.size()
 
 if __name__ == '__main__':
@@ -138,26 +138,35 @@ if __name__ == '__main__':
     parser.add_argument('--model_name', help='output folder name', default=os.path.basename(__file__).split('.')[0])
     parser.add_argument('--load_ckpt', help='ckpt load', default=None)
     parser.add_argument('--outdir', help='alternative outdir', default=None)
+
+    parser.add_argument('--cachedir', help='dir to cache', default='/data/sls/scratch/skoppula/mfcc-nns/rsr-experiments/create_rsr_data_cache/trn_cache_sentfilt1/context_50frms_4mx/')
+    parser.add_argument('--datadir', help='dir to data', default='/data/sls/scratch/skoppula/kaldi-rsr/numpy/')
+    parser.add_argument('--sentfilt', type=int, help='dir to data', default=1)
+    parser.add_argument('--spkmap', help='dir to spk mappings', default='/data/sls/scratch/skoppula/mfcc-nns/rsr-experiments/create_rsr_data_cache/generator_full_dataset/spk_mappings.pickle')
     args = parser.parse_args()
 
     if args.gpu:
         os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
 
-    out_dir = args.model_name + '_twn' + str(args.twn) if args.outdir is None else args.outdir
+    if args.outdir is None:
+        out_dir = 'sentfilt' + str(args.sentfilt) + '_' + args.model_name + '_twn' + str(args.twn)
+        if args.load_ckpt:
+            out_dir += '_preload'
+    else:
+        out_dir = args.outdir
     logger.set_logger_dir(os.path.join('train_log', out_dir), action='k')
     batch_size = 512;
 
-    train_dataflow, n_batches_trn = create_dataflow('train')
-    val_dataflow, n_batches_val = create_dataflow('val')
+    logger.info("Using sentence filter: {}".format(args.sentfilt))
+    train_dataflow, n_batches_trn = create_dataflow('train', args.cachedir, args.datadir, args.spkmap, args.sentfilt)
+    val_dataflow, n_batches_val = create_dataflow('val', args.cachedir, args.datadir, args.spkmap, args.sentfilt)
     logger.info("{} utterances per val epoch".format(n_batches_val))
     logger.info("Using host: {}".format(socket.gethostname()))
 
-    n_spks = get_n_spks()
+    n_spks = get_n_spks(args.spkmap)
     logger.info("Using {} speaker".format(n_spks))
 
-    net_fn_map = {'fcn':fcn_net, 'cnn':cnn_net, 'maxout':maxout_net, 'lcn':lcn_net, 'dsc':dsc_net}
-    print("HERE")
-    print(args.twn)
+    net_fn_map = {'fcn':fcn_net, 'cnn':cnn_net, 'maxout':maxout_net, 'lcn':lcn_net, 'dsc':dsc_net, 'dsc2':dsc2_net}
     model = Model(n_spks, net_fn_map[args.model_name], args.twn, args.n_context)
 
     callbacks=[
@@ -173,7 +182,7 @@ if __name__ == '__main__':
         model=model,
         dataflow=train_dataflow,
         callbacks=callbacks,
-        max_epoch=400,
+        max_epoch=300,
         nr_tower=max(get_nr_gpu(), 1),
         steps_per_epoch=n_batches_trn,
         session_init=SaverRestore(args.load_ckpt) if args.load_ckpt else None

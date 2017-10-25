@@ -15,13 +15,13 @@ __all__ = ['WholeUtteranceAsFrameRsr2015', 'RandomFramesBatchRsr2015', 'WholeUtt
 
 # /data/sls/scratch/skoppula/mfcc-nns/rsr-experiments/create_rsr_data_cache/generator/spk_mappings.pickle
 # /data/sls/scratch/skoppula/mfcc-nns/rsr-experiments/dorefa/train_cache/rsr_smlspk_mappings.pickle
-def get_n_spks(save_path='/data/sls/scratch/skoppula/mfcc-nns/rsr-experiments/create_rsr_data_cache/generator/spk_mappings.pickle'):
+def get_n_spks(save_path):
     if os.path.isfile(save_path):
         with open(save_path, "rb") as f:
             mapping = pickle.load(f)
     return len(mapping)
 
-def create_label_mapping(labels, save_path='/data/sls/scratch/skoppula/mfcc-nns/rsr-experiments/create_rsr_data_cache/generator/spk_mappings.pickle'):
+def create_label_mapping(labels, save_path='generator/spk_mappings.pickle'):
     if os.path.isfile(save_path):
         with open(save_path, "rb") as f:
             mapping = pickle.load(f)
@@ -46,12 +46,13 @@ class RsrMfccFiles(RNGDataFlow):
     Expects a $partition.idx file inside the base_dir fodler
     which contains the path to each example file
     """
-    def __init__(self, base_dir, partition, shuffle=None):
+    def __init__(self, base_dir, partition, spk_mappings_path, shuffle=None, sentfilt=None):
         assert partition in ['train', 'test', 'val']
         assert os.path.isdir(base_dir)
         self.base_dir = base_dir
         self.partition = partition
         self.index = os.path.join(base_dir, partition + '.idx')
+        self.sentfilt = sentfilt
         assert os.path.isfile(self.index)
 
         if shuffle is None:
@@ -61,9 +62,17 @@ class RsrMfccFiles(RNGDataFlow):
         with open(self.index, 'r') as f:
             lines = f.readlines()
 
-        self.labels = [line.split()[0].strip() for line in lines]
-        self.files = [line.split()[1].strip() for line in lines]
-        self.mapping, self.mapped_labels = create_label_mapping(self.labels)
+        self.labels = []; self.files = []
+        for line in lines:
+            label = line.split()[0].strip()
+            fyle = line.split()[1].strip()
+            sent_id = int(fyle.split('/')[-1].split('-')[-2].split('_')[1])
+            if sentfilt is not None and sentfilt != sent_id:
+                continue
+            self.labels.append(label)
+            self.files.append(fyle)
+
+        self.mapping, self.mapped_labels = create_label_mapping(self.labels, spk_mappings_path)
 
     def size(self):
         return len(self.files)
@@ -233,10 +242,9 @@ class WholeUtteranceAsBatchRsr2015(RsrMfccFiles):
     utterance matrix. It is recommended (but not necessary) to  
     follow the same ordering of utterances as the index
     """
-    def __init__(self, base_dir, partition, context=20, n_mfccs=20, include_dd=False, shuffle=None):
-        super(WholeUtteranceAsBatchRsr2015, self).__init__(base_dir, partition, shuffle)
-        self.shapes = get_shapes(base_dir, partition)
-        self.num_examples_in_epoch = len(self.shapes)
+    def __init__(self, base_dir, partition, spk_map_path, context=20, n_mfccs=20, include_dd=False, shuffle=None, sentfilt=None):
+        super(WholeUtteranceAsBatchRsr2015, self).__init__(base_dir, partition, spk_map_path, shuffle, sentfilt)
+        self.num_examples_in_epoch = len(self.files)
         self.context = context
         self.mfcc_size = n_mfccs*3 if include_dd else n_mfccs
         assert context > 0

@@ -71,3 +71,13 @@ def dsc_net(inp):
     l = FullyConnectedWithTrackedMults('linear1', l, out_dim=256, nl=BNReLU)
     l = FullyConnectedWithTrackedMults('linear2', l, out_dim=256, nl=BNReLU)
     return l
+
+def dsc2_net(inp):
+    l = tf.reshape(inp, (-1, 50, 20, 1))
+    l = DepthwiseSeparableConvWithTrackedMults('conv0', l, 4, nl=BNReLU)
+    l = DepthwiseSeparableConvWithTrackedMults('conv1', l, 16, nl=BNReLU, downsample=True)
+    l = DepthwiseSeparableConvWithTrackedMults('conv2', l, 32, nl=BNReLU, downsample=True)
+    l = FullyConnectedWithTrackedMults('linear0', inp, out_dim=256, nl=BNReLU)
+    l = FullyConnectedWithTrackedMults('linear1', l, out_dim=256, nl=BNReLU)
+    l = FullyConnectedWithTrackedMults('linear2', l, out_dim=256, nl=BNReLU)
+    return l
