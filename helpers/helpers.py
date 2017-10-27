@@ -14,32 +14,28 @@ class DumpTensorsOnce(Callback):
     Every step this callback fetches tensors and write them to a npz file under ``logger.LOG_DIR``.
     The dump can be loaded by ``dict(np.load(filename).items())``.
     """
-    def __init__(self, tensors, filename='saved_tensors'):
+    def __init__(self, model, filename='saved_tensors'):
         """
         Args:
             names (list[str]): names of tensors
         """
-        self._tensors = tensors
+
+        self._model = model
         self.save_dir = logger.LOG_DIR
 
         def fn(*args):
             dic = {}
-            for tensor, val in zip(self._tensors, args):
+            for tensor, val in zip(self._model.ternary_weight_tensors, args):
+                # print("saving", tensor.op.name, val.shape)
                 dic[tensor.op.name] = val
             fname = os.path.join(self.save_dir, '{}.npz'.format(filename))
             np.savez(fname, **dic)
 
         self._fn = fn
 
-    def _setup_graph(self):
-        self._fetch = tf.train.SessionRunArgs(fetches=self._tensors)
-
-    def _before_run(self, _):
-        return self._fetch
-
-    def _after_run(self, _, rv):
-        results = rv.results
-        self._fn(*results)
+    def _trigger(self):
+        vals = self.trainer.sess.run(self._model.ternary_weight_tensors)
+        self._fn(*vals)
 
 def read_labels(label_file):
     labels = np.zeros(50000).astype(np.uint8)

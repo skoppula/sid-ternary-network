@@ -1,3 +1,5 @@
+*.ipynb_checkpoints/
+input_data/*
 dataflow*
 *.pyc
 train_log/

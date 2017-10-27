@@ -36,6 +36,7 @@ class Model(ModelDesc):
         self.n_context = n_context
         self.network_complexity = {'mults':0, 'weights':0}
         self.ternary_weight_tensors = []
+        ternary_tensors = self.ternary_weight_tensors
         self.twn = twn
         self.net_fn = net_fn
 
@@ -96,6 +97,11 @@ class Model(ModelDesc):
             add_param_summary(('.*/b', ['rms', 'histogram']))
 
         if self.twn:
+            def fn(name):
+                return ('ternarized_W' in name and 'InferenceTower' in name)
+            tensors = get_tensors_from_graph(tf.get_default_graph(), fn) 
+            self.ternary_weight_tensors = tensors
+            print("yolo", self.ternary_weight_tensors)
             with tf.name_scope('scalar-factor-summaries'):
                 add_param_summary(('.*/Wp', ['scalar']))
                 add_param_summary(('.*/Wn', ['scalar']))
@@ -176,7 +182,8 @@ if __name__ == '__main__':
         ScheduledHyperParamSetter('learning_rate', [(1, 0.1), (75, 0.01), (100, 0.001), (150, 0.0002)])
     ]
     if args.twn:
-        callbacks.append(DumpTensorsOnce(model.ternary_weight_tensors, 'ternary_weights'))
+        print("adding dump to callbacks")
+        callbacks.append(DumpTensorsOnce(model, 'ternary_weights'))
 
     config = TrainConfig(
         model=model,
